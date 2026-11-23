@@ -63,9 +63,9 @@ function h(tag, props, ...kids) {
   return el;
 }
 function hue(s) { let x = 7; for (const c of String(s)) x = (x * 31 + c.codePointAt(0)) >>> 0; return x % 360; }
-const colorFor = s => `hsl(${hue(s)} 24% 44%)`;
+const colorFor = () => '#8a8e97'; // нейтральные аватары, как в «Контактах»
 const initial = s => ([...String(s || '?').trim()][0] || '?').toUpperCase();
-function avatar(name, cls = 'person-ava') { const a = h('span', { class: cls, text: initial(name) }); a.style.background = colorFor(name); return a; }
+function avatar(name, cls = 'person-ava') { return h('span', { class: cls, text: initial(name) }); }
 function setIcon(container, name) { const el = container.matches('[data-icon]') ? container : container.querySelector('[data-icon]'); if (el && el.dataset.icon !== name) { el.dataset.icon = name; paintIcons(container.parentNode || container); } }
 
 function toast(text, opt = {}) {
@@ -110,7 +110,7 @@ function chime(up = true) {
 const me = { id: null, name: ls.get('name', ''), joined: 0 };
 const S = {
   mode: 'create', code: null, roomId: null, peer: null, conn: null, hub: null,
-  offset: 0, bestRtt: Infinity, members: [], room: null, key: null, salt: null, createPass: '',
+  offset: 0, bestRtt: Infinity, members: [], room: null, key: null, salt: null, createPass: '', meta: {},
   connected: false, leaving: false, reconnecting: false, pingTimer: null, lastPong: 0, inCall: false,
 };
 const hubNow = () => Date.now() + S.offset;
@@ -129,7 +129,9 @@ class Hub {
     this.room = {
       hasPass: !!room.hasPass, salt: room.salt || null, locked: !!room.locked, owner: room.owner || null,
       banned: new Set(room.banned || []), known: new Set(room.known || []), rec: {}, ended: false,
+      sched: room.sched || null,
     };
+    this.armEnd();
   }
   start() {
     return new Promise((res, rej) => {
@@ -142,7 +144,15 @@ class Hub {
       this.peer.on('call', c => { try { c.close(); } catch {} });
     });
   }
-  destroy() { this.dead = true; try { this.peer.destroy(); } catch {} }
+  destroy() { this.dead = true; clearTimeout(this.endT); try { this.peer.destroy(); } catch {} }
+  // встреча по расписанию: в назначенное время конец звонка для всех
+  armEnd() {
+    clearTimeout(this.endT);
+    const sc = this.room.sched; if (!sc || !sc.e) return;
+    const ms = sc.e * 1000 - Date.now();
+    if (ms > 2147000000) return;
+    this.endT = setTimeout(() => { if (this.dead) return; this.room.ended = true; this.broadcast({ t: 'ended', reason: 'time' }); setTimeout(() => this.destroy(), 1500); }, Math.max(0, ms));
+  }
   onConn(c) {
     c.on('data', m => { this.onData(c, m).catch(e => console.error(e)); });
     const drop = () => this.drop(c);
@@ -152,7 +162,7 @@ class Hub {
   list() { return [...this.members.values()].map(({ conn, ...m }) => m).sort((a, b) => a.joined - b.joined); }
   pub() {
     const r = this.room;
-    return { hasPass: r.hasPass, salt: r.salt, locked: r.locked, owner: r.owner, banned: [...r.banned].slice(-64), known: [...r.known].slice(-64), rec: Object.keys(r.rec).filter(id => this.members.has(id)) };
+    return { sched: r.sched, hasPass: r.hasPass, salt: r.salt, locked: r.locked, owner: r.owner, banned: [...r.banned].slice(-64), known: [...r.known].slice(-64), rec: Object.keys(r.rec).filter(id => this.members.has(id)) };
   }
   broadcast(m) { for (const x of this.members.values()) { try { x.conn.open && x.conn.send(m); } catch {} } }
   sendMembers() { this.broadcast({ t: 'members', list: this.list() }); }
@@ -188,6 +198,7 @@ class Hub {
     const id = c.peer, r = this.room, mem = this.members.get(id);
     if (m.t === 'hello') {
       if (mem && mem.conn === c) return;
+      if (r.sched && r.sched.e && Date.now() > r.sched.e * 1000) return this.deny(c, 'expired');
       if (r.ended) return this.deny(c, 'ended');
       if (r.banned.has(id)) return this.deny(c, 'kicked');
       const known = r.known.has(id);
@@ -332,7 +343,7 @@ function askPassword(wrong) {
 function closePassword() { $('#pwModal').classList.add('hidden'); pwResolve = null; }
 
 async function becomeHub() {
-  const r = S.room || { hasPass: !!S.key, salt: S.salt, owner: me.id, known: [me.id], banned: [], locked: false };
+  const r = S.room || { hasPass: !!S.key, salt: S.salt, owner: me.id, known: [me.id], banned: [], locked: false, sched: Sched.fromMeta(S.meta) };
   const h = new Hub(S.roomId, r, S.key);
   await h.start();
   S.hub = h;
@@ -395,6 +406,8 @@ const DENY_TEXT = {
   badhub: ['Не удалось проверить комнату', 'Пароль комнаты не совпал. Возможно, её пересоздали — попросите новую ссылку.'],
   timeout: ['Время вышло', 'Комната не дождалась ответа.'],
   error: ['Ошибка комнаты', 'Попробуйте зайти ещё раз.'],
+  expired: ['Встреча завершилась', 'Время этой встречи уже прошло. Попросите новую ссылку.'],
+  time: ['Время встречи вышло', 'Звонок завершился по расписанию.'],
 };
 function onDenied(reason) {
   closePassword();
@@ -426,13 +439,13 @@ function onMessage(m, conn) {
       if (m.id === me.id) { leave('kicked'); return; }
       closeCallWith(m.id); toast(`${cleanName(m.name)} удалён(а) из звонка`, { icon: 'userX' });
       break;
-    case 'ended': leave('ended', cleanName(m.name)); break;
+    case 'ended': leave(m.reason === 'time' ? 'time' : 'ended', cleanName(m.name)); break;
   }
 }
 function sanitizeRoom(r) {
   r = r && typeof r === 'object' ? r : {};
   const arr = a => Array.isArray(a) ? a.filter(x => typeof x === 'string').slice(0, 64) : [];
-  return { hasPass: !!r.hasPass, salt: typeof r.salt === 'string' ? r.salt : null, locked: !!r.locked, owner: typeof r.owner === 'string' ? r.owner : null, banned: arr(r.banned), known: arr(r.known), rec: arr(r.rec) };
+  return { sched: Sched.clean(r.sched), hasPass: !!r.hasPass, salt: typeof r.salt === 'string' ? r.salt : null, locked: !!r.locked, owner: typeof r.owner === 'string' ? r.owner : null, banned: arr(r.banned), known: arr(r.known), rec: arr(r.rec) };
 }
 function setMembers(list) {
   if (!Array.isArray(list)) return;
@@ -452,6 +465,7 @@ function setMembers(list) {
 }
 function onRoom() {
   const r = S.room || {};
+  Sched.callTick();
   $('#lockPill').classList.toggle('hidden', !r.locked);
   $('#ownerTools').classList.toggle('hidden', !amOwner());
   $('[data-act=endall]').classList.toggle('hidden', !amOwner());
@@ -810,7 +824,7 @@ const Tiles = {
   update(t) {
     const m = t.self ? { name: me.name, mic: micLive(), cam: M.camOn, screen: !!M.screenTrack } : (memberOf(t.id) || { name: '…', mic: true, cam: false, screen: false });
     const hasVideo = t.self ? !!(M.screenTrack || (M.camOn && M.camTrack)) : !!(m.cam || m.screen) && !!t.video.srcObject;
-    const span = t.ava.firstChild; span.textContent = initial(m.name); span.style.background = colorFor(m.name);
+    const span = t.ava.firstChild; span.textContent = initial(m.name);
     t.ava.classList.toggle('hidden', hasVideo);
     t.el.classList.toggle('screen', !!m.screen);
     t.badge.classList.toggle('hidden', !m.screen);
@@ -886,6 +900,7 @@ function floatPos(corner, w, hgt, W, H, sf) {
 function place(t, r, cls) {
   const s = t.el.style;
   s.left = r.x + 'px'; s.top = r.y + 'px'; s.width = r.w + 'px'; s.height = r.h + 'px';
+  s.borderRadius = cls === 'bleed' ? '0px' : Math.round(Math.max(10, Math.min(30, Math.min(r.w, r.h) * .085))) + 'px';
   t.el.classList.toggle('bleed', cls === 'bleed');
   t.el.classList.toggle('float', cls === 'float');
   t.el.classList.toggle('small', r.w < 220 && cls !== 'float' ? true : cls === 'float' && r.w < 150);
@@ -960,6 +975,7 @@ function initFloatDrag(t) {
       const dw = Math.max(right ? -dx : dx, (bottom ? -dy : dy) * a);
       const w = Math.max(96, Math.min(st.w + dw, Math.min(W * .6, 640))), hh = w / a;
       el.style.width = w + 'px'; el.style.height = hh + 'px';
+      el.style.borderRadius = Math.round(Math.max(10, Math.min(30, Math.min(w, hh) * .085))) + 'px';
       el.style.left = (right ? st.l + st.w - w : st.l) + 'px';
       el.style.top = (bottom ? st.t + st.h - hh : st.t) + 'px';
     } else {
@@ -1092,7 +1108,22 @@ function openSide(tab) {
   $$('.side-body').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== tab));
   if (tab === 'chat') { unread = 0; updateBadge(); setTimeout(() => $('#chatInput').focus(), 300); const ul = $('#chatList'); ul.scrollTop = ul.scrollHeight; }
 }
-function inviteLink() { return location.origin + location.pathname + '#' + S.code; }
+// данные встречи и пароля упакованы компактно: #КОД.<base64url(JSON)>
+const b64u = str => btoa(String.fromCharCode(...enc(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = str => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)));
+function metaHash(code, sc, pass) {
+  const o = {};
+  if (sc) { o.t = sc.t; o.d = Math.round((sc.e - sc.t) / 60); if (sc.n) o.n = sc.n; if (sc.z) o.z = sc.z; }
+  if (pass && pass.s && pass.v) { o.s = pass.s; o.v = pass.v; }
+  return Object.keys(o).length ? code + '.' + b64u(JSON.stringify(o)) : code;
+}
+function hashFor() { return metaHash(S.code, (S.room && S.room.sched) || Sched.fromMeta(S.meta), S.meta); }
+function inviteLink() { return location.origin + location.pathname + '#' + hashFor(); }
+// проверочная метка пароля в ссылке: по ней любой, кто первым откроет пустую комнату, вводит тот же пароль
+async function passVerifier(key, code) { return (await Crypt.sign(key, 'verify|' + code)).slice(0, 22); }
+async function syncPassMeta() {
+  if (S.key && S.salt && S.code) { S.meta.s = S.salt; S.meta.v = await passVerifier(S.key, S.code); if (S.inCall) history.replaceState(null, '', '#' + hashFor()); }
+}
 
 /* ---------- скрытие панели при бездействии ---------- */
 let idleT = 0;
@@ -1222,7 +1253,21 @@ function snapshot() {
 /* =====================================================================
    ЭКРАНЫ: главная → предпросмотр → звонок
    ===================================================================== */
-function codeFromHash() { const c = normCode(decodeURIComponent(location.hash.slice(1))); return isCode(c) ? c : null; }
+function parseHash() {
+  const raw = decodeURIComponent(location.hash.slice(1)); const i = raw.search(/[.?]/);
+  const c = normCode(i < 0 ? raw : raw.slice(0, i));
+  const meta = {};
+  if (i >= 0 && raw[i] === '.') {
+    let o = null; try { o = JSON.parse(unb64u(raw.slice(i + 1, i + 2000))); } catch {}
+    if (o && typeof o === 'object') {
+      const sc = Sched.clean({ n: o.n, t: o.t, e: +o.t + Math.round(+o.d) * 60, z: o.z });
+      if (sc) Object.assign(meta, sc);
+      if (typeof o.s === 'string' && typeof o.v === 'string' && /^[A-Za-z0-9+/=]{8,64}$/.test(o.s) && /^[A-Za-z0-9+/=]{8,64}$/.test(o.v)) { meta.s = o.s; meta.v = o.v; }
+    }
+  }
+  return { code: isCode(c) ? c : null, meta };
+}
+function codeFromHash() { return parseHash().code; }
 function renderHome() {
   const code = codeFromHash();
   $('#nameInput').value = me.name;
@@ -1230,7 +1275,9 @@ function renderHome() {
   $('#joinBlock').classList.toggle('hidden', !code);
   $('#createBlock').classList.toggle('hidden', !!code);
   if (code) $('#inviteCode').textContent = fmtCode(code);
+  Sched.renderInvite(code ? parseHash().meta : null);
   $('#cardTitle').textContent = code ? 'Как вас представить?' : 'Начать звонок';
+  $('#home').classList.toggle('invited', !!code);
   show('home');
 }
 function takeName() {
@@ -1241,8 +1288,10 @@ function takeName() {
 async function goPreview(mode, code) {
   if (!takeName()) return;
   S.mode = mode; S.code = code;
+  S.meta = mode === 'join' && code === codeFromHash() ? parseHash().meta : (S.meta && S.meta._for === code ? S.meta : {});
+  S.meta._for = code;
   S.createPass = mode === 'create' && !$('#passRow').classList.contains('hidden') ? $('#createPass').value : '';
-  $('#pvTitle').textContent = mode === 'create' ? 'Новый звонок' : 'Комната ' + fmtCode(code);
+  $('#pvTitle').textContent = mode === 'create' ? 'Новый звонок' : (S.meta.n || 'Комната ' + fmtCode(code));
   $('#pvSub').textContent = mode === 'create' ? (S.createPass ? 'Комната будет с паролем.' : 'После входа отправьте друзьям ссылку.') : 'Проверьте камеру и звук перед входом.';
   $('#pvJoin').disabled = false; $('#pvJoin').textContent = 'Войти';
   show('preview');
@@ -1259,7 +1308,7 @@ function renderPreview() {
   if ((v._t || null) !== want) { v._t = want; v.srcObject = want ? new MediaStream([want]) : null; if (want) v.play().catch(() => {}); }
   v.classList.toggle('mirrored', M.mirror);
   $('#pvPlaceholder').classList.toggle('hidden', !!want);
-  const ava = $('#pvAva'); ava.textContent = initial(me.name); ava.style.background = colorFor(me.name);
+  const ava = $('#pvAva'); ava.textContent = initial(me.name);
   const mic = $('#pvMic'), cam = $('#pvCam');
   setIcon(mic, micLive() ? 'mic' : 'micOff'); mic.classList.toggle('off', !micLive());
   setIcon(cam, M.camOn ? 'cam' : 'camOff'); cam.classList.toggle('off', !M.camOn);
@@ -1287,7 +1336,22 @@ async function startCall() {
     if (S.mode === 'create') {
       S.salt = toB64(crypto.getRandomValues(new Uint8Array(16)));
       S.key = S.createPass ? await Crypt.deriveKey(S.createPass, S.salt) : null;
-    } else { S.key = null; S.salt = null; }
+    } else {
+      S.key = null; S.salt = null;
+      if (S.meta.e && Date.now() > S.meta.e * 1000) { leave('expired'); return; }
+      if (S.preset && S.preset.code === S.code) { S.key = S.preset.key; S.salt = S.preset.salt; }
+      else if (S.meta.s && S.meta.v) {
+        // пароль из ссылки: проверяем локально, по сети он не уходит
+        let wrong = false;
+        for (;;) {
+          const pw = await askPassword(wrong);
+          if (pw == null) { closePassword(); btn.disabled = false; btn.textContent = 'Войти'; return; }
+          const k = await Crypt.deriveKey(pw, S.meta.s);
+          if (await passVerifier(k, S.code) === S.meta.v) { S.key = k; S.salt = S.meta.s; closePassword(); break; }
+          wrong = true;
+        }
+      }
+    }
     S.peer = await createPeer();
     me.id = S.peer.id;
     if (S.mode === 'create') {
@@ -1297,6 +1361,7 @@ async function startCall() {
         catch (e) { if (e && e.type === 'unavailable-id') { S.code = null; continue; } throw e; }
       }
     } else S.roomId = await hubIdFor(S.code);
+    syncPassMeta();
     await ensureConnected(false);
   } catch (e) {
     console.error(e);
@@ -1307,7 +1372,8 @@ async function startCall() {
 }
 function enterCall() {
   S.inCall = true;
-  history.replaceState(null, '', '#' + S.code);
+  history.replaceState(null, '', '#' + hashFor());
+  syncPassMeta();
   $('#roomCode').textContent = fmtCode(S.code);
   $('#aloneCode').textContent = fmtCode(S.code);
   show('call');
@@ -1350,7 +1416,7 @@ function leave(reason, by) {
     : reason === 'neterr' ? ['Не удалось подключиться', 'Проверьте интернет. Если сеть строгая (офис, часть мобильных операторов), без TURN-сервера звонок может не соединиться.']
     : DENY_TEXT[reason] || ['Звонок завершён', ''];
   $('#endedTitle').textContent = title; $('#endedText').textContent = text;
-  $('#rejoinBtn').classList.toggle('hidden', ['kicked', 'ended'].includes(reason) || !S.code);
+  $('#rejoinBtn').classList.toggle('hidden', ['kicked', 'ended', 'time', 'expired'].includes(reason) || !S.code);
   $('#rejoinBtn').textContent = wasIn ? 'Вернуться в звонок' : 'Попробовать снова';
   show('ended');
 }

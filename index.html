@@ -41,7 +41,13 @@
 
     <section class="join-card glass-strong" aria-label="Начать звонок">
       <div class="invite hidden" id="inviteBox">
-        <span class="invite-label">Вас пригласили в комнату</span>
+        <span class="invite-label" id="inviteLabel">Вас пригласили в комнату</span>
+        <div class="sched-info hidden" id="schedInfo">
+          <b class="si-title" id="siTitle"></b>
+          <span class="si-when" id="siWhen"></span>
+          <span class="si-local hidden" id="siLocal"></span>
+          <span class="status-chip" id="siStatus"><i></i><span></span></span>
+        </div>
         <span class="invite-code" id="inviteCode"></span>
       </div>
       <h2 class="card-title" id="cardTitle">Начать звонок</h2>
@@ -59,6 +65,7 @@
           </label>
         </div>
         <button class="btn btn-primary btn-lg" id="createBtn" type="button"><span>Создать звонок</span><span data-icon="arrow"></span></button>
+        <button class="btn btn-glass btn-lg" id="schedBtn" type="button"><span data-icon="calendar"></span><span>Запланировать</span></button>
         <button class="link-btn" id="passToggle" type="button"><span data-icon="lock"></span><span>Добавить пароль</span></button>
 
         <div class="divider"><span>или по коду</span></div>
@@ -124,6 +131,7 @@
       <span class="pill-code" id="roomCode"></span>
       <span data-icon="link"></span>
     </button>
+    <span class="pill glass hidden" id="timePill"><span data-icon="clock"></span><span id="timeText"></span></span>
     <span class="pill glass hidden" id="lockPill"><span data-icon="lock"></span><span>Вход закрыт</span></span>
     <span class="pill pill-rec hidden" id="recPill"><i></i><span id="recText">Запись</span></span>
     <button class="pill glass hidden" id="gamePill" type="button"><span data-icon="game"></span><span id="gamePillText">Сулифа</span></button>
@@ -226,6 +234,43 @@
   </form>
 </div>
 
+<div class="modal hidden" id="schedModal" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
+  <div class="sheet sheet-wide glass-strong sched">
+    <div class="sheet-head"><h3 id="schedTitle">Запланировать звонок</h3><button class="icon-btn" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div>
+    <form id="schedForm" class="sched-form" autocomplete="off">
+      <label class="field"><span class="field-label">Название</span><input id="sTitle" type="text" maxlength="60" placeholder="Например, созвон по проекту"></label>
+      <div class="row2">
+        <label class="field"><span class="field-label">Дата</span><input id="sDate" type="date" required></label>
+        <label class="field"><span class="field-label">Начало</span><input id="sTime" type="time" step="300" required></label>
+      </div>
+      <div class="field"><span class="field-label">Длительность</span>
+        <div class="chips-seg" id="sDur" role="group" aria-label="Длительность">
+          <button type="button" data-m="30">30 мин</button><button type="button" data-m="60">1 ч</button><button type="button" data-m="90">1,5 ч</button><button type="button" data-m="120">2 ч</button><button type="button" data-m="180">3 ч</button>
+        </div>
+      </div>
+      <label class="field"><span class="field-label">Часовой пояс</span><select id="sTz"></select></label>
+      <div class="sched-summary" id="sLocal"></div>
+      <label class="field"><span class="field-label">Пароль <small>необязательно</small></span><input id="sPass" type="password" maxlength="64" autocomplete="new-password" placeholder="Без пароля"></label>
+      <p class="err hidden" id="sErr"></p>
+      <button class="btn btn-primary btn-lg" type="submit"><span>Создать встречу</span><span data-icon="arrow"></span></button>
+      <p class="hint center">Войти можно заранее. Когда время встречи закончится, звонок завершится для всех, а ссылка перестанет работать.</p>
+    </form>
+    <div id="schedDone" class="sched-done hidden">
+      <span class="done-icon" data-icon="calendar"></span>
+      <h3 id="dTitle"></h3>
+      <p class="muted" id="dWhen"></p>
+      <span class="status-chip" id="dStatus"><i></i><span></span></span>
+      <div class="link-box"><input id="dLink" type="text" readonly aria-label="Ссылка на встречу"></div>
+      <p class="hint hidden" id="dPass">Встреча с паролем — сообщите его участникам отдельно.</p>
+      <div class="done-actions">
+        <button class="btn btn-primary btn-lg" id="dEnter" type="button"><span data-icon="link"></span><span>Скопировать и войти</span></button>
+        <button class="btn btn-glass btn-lg" id="dCopy" type="button"><span data-icon="copy"></span><span>Только скопировать</span></button>
+      </div>
+      <button class="link-btn" id="dBack" type="button"><span>Изменить</span></button>
+    </div>
+  </div>
+</div>
+
 <div class="modal hidden" id="settings" role="dialog" aria-modal="true" aria-labelledby="setTitle">
   <div class="sheet sheet-wide glass-strong">
     <div class="sheet-head"><h3 id="setTitle">Звук и видео</h3><button class="icon-btn" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div>
@@ -280,6 +325,7 @@
 <script src="js/config.js"></script>
 <script src="js/icons.js"></script>
 <script src="js/app.js"></script>
+<script src="js/schedule.js"></script>
 <script src="js/effects.js"></script>
 <script src="js/games.js"></script>
 </body>
