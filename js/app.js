@@ -18,7 +18,6 @@ const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
 const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉', '🔥', '👎'];
-const FX_KINDS = ['fireworks', 'confetti', 'balloons', 'hearts', 'rain', 'lasers', 'thumbsup', 'thumbsdown'];
 
 /* ---------- случайность и коды ---------- */
 const CODE_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // без O/0, I/1/L
@@ -219,7 +218,6 @@ class Hub {
       case 'status': mem.mic = !!m.mic; mem.cam = !!m.cam; mem.screen = !!m.screen; this.sendMembers(); break;
       case 'chat': { const text = String(m.text || '').slice(0, 500).trim(); if (text) this.broadcast({ t: 'chat', from: id, name: mem.name, text, ts: Date.now() }); break; }
       case 'react': if (REACTIONS.includes(m.e)) this.broadcast({ t: 'react', from: id, name: mem.name, e: m.e }); break;
-      case 'fx': if (FX_KINDS.includes(m.k)) this.broadcast({ t: 'fx', from: id, name: mem.name, k: m.k }); break;
       case 'rec': if (m.on) r.rec[id] = true; else delete r.rec[id]; this.sendRoom(); this.broadcast({ t: 'sys', k: m.on ? 'rec' : 'recoff', id, name: mem.name }); break;
       case 'shot': this.broadcast({ t: 'sys', k: 'shot', id, name: mem.name }); break;
       case 'g': {
@@ -423,7 +421,6 @@ function onMessage(m, conn) {
     case 'sys': onSys(m); break;
     case 'chat': addChat(m); break;
     case 'react': if (m.from !== me.id && REACTIONS.includes(m.e)) FX.emoji(m.e, cleanName(m.name)); break;
-    case 'fx': if (m.from !== me.id && FX_KINDS.includes(m.k)) FX.effect(m.k, cleanName(m.name)); break;
     case 'g': Games.onMsg(String(m.from), m.d); break;
     case 'kicked':
       if (m.id === me.id) { leave('kicked'); return; }
@@ -632,7 +629,7 @@ async function setCam(on) {
     if (M.camTrack) M.camTrack.stop(); M.camTrack = null;
   }
   if (!M.screenTrack) replaceVideo(currentVideoTrack());
-  Gest.sync(); updateControls(); renderPreview(); Tiles.refreshSelf(); sendStatus();
+  updateControls(); renderPreview(); Tiles.refreshSelf(); sendStatus();
 }
 async function switchCamera(deviceId, facing) {
   if (deviceId !== undefined) ls.set('camId', deviceId);
@@ -648,14 +645,14 @@ async function toggleScreen() {
     const tr = s.getVideoTracks()[0]; if (!tr) return;
     try { tr.contentHint = 'detail'; } catch {}
     M.screenTrack = tr; tr.onended = () => { if (M.screenTrack === tr) stopScreen(); };
-    replaceVideo(tr); Gest.sync(); updateControls(); Tiles.refreshSelf(); sendStatus();
+    replaceVideo(tr); updateControls(); Tiles.refreshSelf(); sendStatus();
     toast('Вы показываете экран', { icon: 'screen' });
   } catch (e) { if (e && e.name !== 'NotAllowedError') toast('Не удалось начать демонстрацию', { icon: 'screenOff' }); }
 }
 function stopScreen() {
   const tr = M.screenTrack; if (!tr) return;
   M.screenTrack = null; try { tr.stop(); } catch {}
-  replaceVideo(currentVideoTrack()); Gest.sync(); updateControls(); Tiles.refreshSelf(); sendStatus();
+  replaceVideo(currentVideoTrack()); updateControls(); Tiles.refreshSelf(); sendStatus();
 }
 
 /* ---------- устройства ---------- */
@@ -680,7 +677,7 @@ async function fillDevices() {
   const hasSpk = SINK_OK && list.some(d => d.kind === 'audiooutput');
   $('#pvSpkWrap').classList.toggle('hidden', !hasSpk); $('#setSpkWrap').classList.toggle('hidden', !hasSpk);
   const cams = list.filter(d => d.kind === 'videoinput').length;
-  $('#flipBtn').classList.toggle('hidden', !(IS_TOUCH && cams > 1));
+  document.body.classList.toggle('can-flip', IS_TOUCH && cams > 1);
 }
 function applySink(el) { const id = ls.get('spkId', ''); if (SINK_OK && id && el.setSinkId) el.setSinkId(id).catch(() => {}); }
 
@@ -780,7 +777,13 @@ const Tiles = {
     const menuBtn = h('button', { class: 'tile-menu-btn', type: 'button', 'aria-label': 'Действия' }, svgIcon('dots'));
     el.append(video, ava, badge, label, menuBtn);
     let grip = null;
-    if (self) { grip = h('div', { class: 'resize-grip', 'data-c': 'tl', 'aria-hidden': 'true' }); el.append(grip); }
+    if (self) {
+      grip = h('div', { class: 'resize-grip', 'data-c': 'tl', 'aria-hidden': 'true' }); el.append(grip);
+      const flip = h('button', { class: 'tile-flip', type: 'button', 'aria-label': 'Сменить камеру' }, svgIcon('flip'));
+      flip.addEventListener('pointerdown', e => e.stopPropagation());
+      flip.addEventListener('click', e => { e.stopPropagation(); switchCamera(undefined, M.facing === 'user' ? 'environment' : 'user'); });
+      el.append(flip);
+    }
     t = { id, el, video, ava, badge, label, menuBtn, grip, self };
     this.map.set(id, t);
     $('#stage').append(el);
@@ -896,7 +899,7 @@ function layout() {
   const top = 60 + sf.t, bottom = (IS_TOUCH ? 92 : 100) + sf.b, side = 12;
   const gap = n > 4 ? 8 : 10;
   const area = { x: side + sf.l, y: top, w: W - 2 * side - sf.l - sf.r, h: H - top - bottom };
-  $('#alone').classList.toggle('hidden', n > 1 || L.game);
+  $('#alone').classList.toggle('hidden', n > 1 || L.game || S.aloneClosed);
   // layout-кнопка в меню
   const lb = $('[data-act=layout]');
   if (lb) { setIcon(lb, L.mode === 'pip' ? 'side' : 'pip'); lb.querySelector('.mi-text').textContent = L.mode === 'pip' ? 'Окна рядом, одного размера' : 'Собеседник крупно, я в углу'; lb.classList.toggle('hidden', n !== 2); }
@@ -1105,12 +1108,12 @@ function poke() {
 /* =====================================================================
    ЗАПИСЬ ЗВОНКА И СНИМКИ
    ===================================================================== */
-function drawTile(g, t, r, label) {
+function drawTile(g, t, r, label, rad = 14) {
   const v = t.video;
   const m = t.self ? { name: me.name, cam: M.camOn, screen: !!M.screenTrack } : (memberOf(t.id) || { name: '…' });
   const live = (t.self ? !!(M.screenTrack || M.camOn) : !!(m.cam || m.screen)) && v.readyState >= 2 && v.videoWidth;
   g.save();
-  g.beginPath(); g.roundRect ? g.roundRect(r.x, r.y, r.w, r.h, 14) : g.rect(r.x, r.y, r.w, r.h); g.clip();
+  g.beginPath(); rad && g.roundRect ? g.roundRect(r.x, r.y, r.w, r.h, rad) : g.rect(r.x, r.y, r.w, r.h); g.clip();
   g.fillStyle = '#1c1c1e'; g.fillRect(r.x, r.y, r.w, r.h);
   if (live) {
     const vw = v.videoWidth, vh = v.videoHeight, contain = !!m.screen;
@@ -1124,11 +1127,11 @@ function drawTile(g, t, r, label) {
     g.fillText(initial(m.name), r.x + r.w / 2, r.y + r.h / 2 + 1);
   }
   if (label) {
-    const name = t.self ? me.name : m.name;
-    g.font = '500 15px -apple-system, Inter, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    const tw = g.measureText(name).width;
-    g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.roundRect ? g.roundRect(r.x + 10, r.y + r.h - 36, tw + 20, 26, 13) : g.rect(r.x + 10, r.y + r.h - 36, tw + 20, 26); g.fill();
-    g.fillStyle = '#fff'; g.fillText(name, r.x + 20, r.y + r.h - 23);
+    const name = t.self ? me.name : m.name, k = Math.max(1, r.w / 900);
+    g.font = `500 ${Math.round(15 * k)}px -apple-system, Inter, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+    const tw = g.measureText(name).width, bh = 26 * k, bx = r.x + 10 * k, by = r.y + r.h - bh - 10 * k;
+    g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.roundRect ? g.roundRect(bx, by, tw + 20 * k, bh, bh / 2) : g.rect(bx, by, tw + 20 * k, bh); g.fill();
+    g.fillStyle = '#fff'; g.fillText(name, bx + 10 * k, by + bh / 2);
   }
   g.restore();
 }
@@ -1193,23 +1196,26 @@ const Rec = {
     toast('Запись сохранена в «Загрузки»', { icon: 'check' });
   },
   ui() {
-    const it = $('[data-act=record]');
-    setIcon(it, this.active ? 'stop' : 'record');
-    it.querySelector('.mi-text').textContent = this.active ? 'Остановить запись' : 'Записать звонок';
+    const b = $('#recBtn');
+    b.classList.toggle('rec-on', this.active);
+    b.setAttribute('aria-label', this.active ? 'Остановить запись' : 'Записать звонок');
+    b.title = this.active ? 'Остановить запись' : 'Записать звонок';
     onRoom();
   },
 };
 function snapshot() {
   const tiles = Tiles.ordered(); if (!tiles.length) return;
-  const n = tiles.length, cols = n <= 1 ? 1 : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
-  const tw = 960, th = 540, gap = 12;
-  const c = h('canvas'); c.width = cols * tw + (cols + 1) * gap; c.height = rows * th + (rows + 1) * gap;
-  const g = c.getContext('2d');
-  g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height);
-  const rects = gridRects(n, gap, gap, c.width - 2 * gap, c.height - 2 * gap, gap, 16 / 9);
-  tiles.forEach((t, i) => drawTile(g, t, rects[i], true));
-  const flash = h('div', { class: 'fx-caption glass-strong', text: 'Снимок сохранён' });
-  c.toBlob(b => { if (b) { download(b, `Рядом-снимок-${stamp()}.png`); document.body.append(flash); setTimeout(() => { flash.classList.add('out'); setTimeout(() => flash.remove(), 300); }, 1600); } }, 'image/png');
+  const fl = $('#shutterFlash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+  const st = stamp();
+  tiles.forEach((t, i) => {
+    const v = t.video, live = v.readyState >= 2 && v.videoWidth;
+    const w = live ? Math.min(1920, v.videoWidth) : 1280, hh = live ? Math.round(w * v.videoHeight / v.videoWidth) : 720;
+    const c = h('canvas'); c.width = w; c.height = hh;
+    drawTile(c.getContext('2d'), t, { x: 0, y: 0, w, h: hh }, true, 0);
+    const name = (t.self ? me.name : nameOf(t.id)).replace(/[\\/:*?"<>|]+/g, '_');
+    c.toBlob(b => { if (b) setTimeout(() => download(b, `Рядом-${name}-${st}.png`), i * 350); }, 'image/png');
+  });
+  toast(tiles.length > 1 ? `Снимки ${tiles.length} участников сохранены в «Загрузки»` : 'Снимок сохранён в «Загрузки»', { icon: 'shot' });
   send({ t: 'shot' });
 }
 
@@ -1224,6 +1230,7 @@ function renderHome() {
   $('#joinBlock').classList.toggle('hidden', !code);
   $('#createBlock').classList.toggle('hidden', !!code);
   if (code) $('#inviteCode').textContent = fmtCode(code);
+  $('#cardTitle').textContent = code ? 'Как вас представить?' : 'Начать звонок';
   show('home');
 }
 function takeName() {
@@ -1275,7 +1282,7 @@ async function startCall() {
     await ensureAudioGraph();
     if (!M.raw) M.micOn = false;
     replaceVideo(currentVideoTrack());
-    S.leaving = false; S.inCall = false; S.members = []; S.room = null; S.hub = null; S.conn = null; S.reconnecting = false;
+    S.leaving = false; S.inCall = false; S.aloneClosed = false; S.members = []; S.room = null; S.hub = null; S.conn = null; S.reconnecting = false;
     me.joined = Date.now();
     if (S.mode === 'create') {
       S.salt = toB64(crypto.getRandomValues(new Uint8Array(16)));
@@ -1308,7 +1315,6 @@ function enterCall() {
   setConn(true); poke();
   $('#screenBtn').classList.toggle('hidden', !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) || IS_TOUCH);
   $('#shareBtn').classList.toggle('hidden', !navigator.share);
-  Gest.sync();
   if (M.denied || !M.raw) toast('Вы в режиме «только слушать»', { icon: 'micOff' });
 }
 function cleanupConnection(slowHub) {
@@ -1337,7 +1343,7 @@ function leave(reason, by) {
   const wasIn = S.inCall; S.inCall = false;
   if (M.camTrack) { M.camTrack.stop(); M.camTrack = null; M.camOn = false; }
   if (M.raw) { M.raw.getTracks().forEach(t => t.stop()); M.raw = null; }
-  M.asked = false; Gest.sync();
+  M.asked = false;
   if (reason === 'cancel') { renderHome(); return; }
   const [title, text] = reason === 'self' ? ['Вы вышли из звонка', 'Можно вернуться по той же ссылке, пока в комнате кто-то есть.']
     : reason === 'ended' ? ['Звонок завершён', by ? `${by} завершает звонок для всех.` : 'Организатор завершил звонок.']
@@ -1410,8 +1416,9 @@ function bind() {
   mic.addEventListener('pointerdown', () => { if (M.ptt && M.raw) { M.micOn = true; M.pttDown = true; } });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => mic.addEventListener(ev, () => { if (M.ptt) M.pttDown = false; }));
   $('#camBtn').onclick = () => setCam(!M.camOn);
-  $('#flipBtn').onclick = () => switchCamera(undefined, M.facing === 'user' ? 'environment' : 'user');
   $('#screenBtn').onclick = toggleScreen;
+  $('#recBtn').onclick = () => Rec.active ? Rec.stop() : Rec.start();
+  $('#shotBtn').onclick = snapshot;
   $('#reactBtn').onclick = e => {
     e.stopPropagation();
     const bar = $('#reactBar'), open = bar.classList.contains('hidden');
@@ -1435,12 +1442,10 @@ function bind() {
   $('#moreMenu').addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b) return; e.stopPropagation();
     const a = b.dataset.act;
-    if (a !== 'mirror' && a !== 'gestures') closeMenus();
-    if (a === 'record') Rec.active ? Rec.stop() : Rec.start();
-    else if (a === 'shot') snapshot();
+    if (a !== 'mirror') closeMenus();
+    if (a === 'game') Games.toggleRoom();
     else if (a === 'layout') { L.mode = L.mode === 'pip' ? 'side' : 'pip'; ls.set('layout', L.mode); L.swap = false; layout(); }
     else if (a === 'mirror') setMirror(!M.mirror);
-    else if (a === 'gestures') Gest.setEnabled(!Gest.enabled);
     else if (a === 'people') openSide('people');
     else if (a === 'chat') openSide('chat');
     else if (a === 'settings') openSettings();
@@ -1462,6 +1467,7 @@ function bind() {
   $$('.seg-btn').forEach(b => b.onclick = () => { $('#side').dataset.tab = ''; openSide(b.dataset.tab); });
   $('#lockBtn').onclick = () => { if (amOwner()) send({ t: 'lock', on: !(S.room && S.room.locked) }); };
   $('#chatForm').onsubmit = e => { e.preventDefault(); const i = $('#chatInput'); const v = i.value.trim(); if (!v) return; send({ t: 'chat', text: v.slice(0, 500) }); i.value = ''; };
+  $('#aloneClose').onclick = () => { S.aloneClosed = true; layout(); };
   $('#tapAudio').onclick = () => { for (const t of Tiles.map.values()) if (!t.self) t.video.play().catch(() => {}); M.ctx && M.ctx.resume(); $('#tapAudio').classList.add('hidden'); };
 
   // окна
@@ -1471,7 +1477,6 @@ function bind() {
   $('#voiceRange').oninput = e => { M.voiceVol = +e.target.value; ls.set('voiceVol', M.voiceVol); $('#voiceVal').textContent = Math.round(M.voiceVol * 100) + '%'; for (const id of M.remotes.keys()) applyVol(id); };
   $('#pttSwitch').onclick = () => { M.ptt = !M.ptt; ls.set('ptt', M.ptt); if (M.ptt) M.micOn = true; $('#pttSwitch').setAttribute('aria-checked', String(M.ptt)); updateControls(); sendStatus(); };
   $('#mirrorSwitch').onclick = () => setMirror(!M.mirror);
-  $('#gestSwitch').onclick = () => Gest.setEnabled(!Gest.enabled);
 
   // клавиатура
   const typing = e => e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
@@ -1487,7 +1492,6 @@ function bind() {
   // бездействие
   ['pointermove', 'pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { if (S.inCall) poke(); }, { passive: true }));
   addEventListener('pagehide', () => { try { S.peer && S.peer.destroy(); } catch {} if (S.hub) S.hub.destroy(); });
-  document.addEventListener('visibilitychange', () => Gest.sync());
 }
 function renderGate() {
   $('#gateRange').value = M.gateDb;
@@ -1499,7 +1503,6 @@ function openSettings() {
   $('#voiceRange').value = M.voiceVol; $('#voiceVal').textContent = Math.round(M.voiceVol * 100) + '%';
   $('#pttSwitch').setAttribute('aria-checked', String(M.ptt));
   $('#mirrorSwitch').setAttribute('aria-checked', String(M.mirror));
-  $('#gestSwitch').setAttribute('aria-checked', String(Gest.enabled));
   $('#iosVolHint').classList.toggle('hidden', !IS_IOS);
   fillDevices();
   $('#settings').classList.remove('hidden');
@@ -1508,7 +1511,6 @@ function openSettings() {
 window.addEventListener('DOMContentLoaded', () => {
   bind();
   $('[data-act=mirror]').classList.toggle('on', M.mirror);
-  $('[data-act=gestures]').classList.toggle('on', Gest.enabled);
   $('#rejoinBtn').onclick = () => { S.leaving = false; goPreview(S.mode === 'create' ? 'join' : S.mode, S.code); };
   $('#homeBtn').onclick = () => { history.replaceState(null, '', location.pathname); S.code = null; renderHome(); };
   if (!window.Peer) toast('Не загрузилась библиотека связи. Проверьте интернет и обновите страницу.', { ms: 8000 });
