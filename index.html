@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<svg width="0" height="0" class="svg-defs" aria-hidden="true"><filter id="goo" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="8" result="b"/><feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10" result="g"/><feComposite in="SourceGraphic" in2="g" operator="atop"/></filter></svg>
 <div class="backdrop" aria-hidden="true"><i class="glow g1"></i><i class="glow g2"></i><i class="grain"></i></div>
 
 <!-- ============ ГЛАВНАЯ ============ -->
@@ -239,14 +240,23 @@
     <div class="sheet-head"><h3 id="schedTitle">Запланировать звонок</h3><button class="icon-btn" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div>
     <form id="schedForm" class="sched-form" autocomplete="off">
       <label class="field"><span class="field-label">Название</span><input id="sTitle" type="text" maxlength="60" placeholder="Например, созвон по проекту"></label>
-      <div class="row2">
-        <label class="field"><span class="field-label">Дата</span><input id="sDate" type="date" required></label>
-        <label class="field"><span class="field-label">Начало</span><input id="sTime" type="time" step="300" required></label>
-      </div>
-      <div class="field"><span class="field-label">Длительность</span>
-        <div class="chips-seg" id="sDur" role="group" aria-label="Длительность">
-          <button type="button" data-m="30">30 мин</button><button type="button" data-m="60">1 ч</button><button type="button" data-m="90">1,5 ч</button><button type="button" data-m="120">2 ч</button><button type="button" data-m="180">3 ч</button>
+      <div class="field"><span class="field-label">Начало</span>
+        <div class="dt-row">
+          <button class="pick-btn" id="sDateBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Дата начала"><span class="pick-val" id="sDateVal"></span><span data-icon="calendar"></span></button>
+          <div class="pick-field"><input class="pick-input tnum" id="sStartTime" type="text" inputmode="numeric" autocomplete="off" aria-label="Время начала" aria-haspopup="dialog" aria-expanded="false"><button class="pick-ico" type="button" tabindex="-1" aria-label="Выбрать время"><span data-icon="clock"></span></button></div>
         </div>
+      </div>
+      <div class="field"><span class="field-label">Окончание</span>
+        <div class="dt-row">
+          <button class="pick-btn" id="sEndDateBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Дата окончания"><span class="pick-val" id="sEndDateVal"></span><span data-icon="calendar"></span></button>
+          <div class="pick-field"><input class="pick-input tnum" id="sEndTime" type="text" inputmode="numeric" autocomplete="off" aria-label="Время окончания" aria-haspopup="dialog" aria-expanded="false"><button class="pick-ico" type="button" tabindex="-1" aria-label="Выбрать время"><span data-icon="clock"></span></button></div>
+        </div>
+      </div>
+      <p class="hint hidden" id="sEndHint"></p>
+      <div class="field">
+        <div class="dur-head"><span class="field-label">Длительность</span><b id="sDurText"></b></div>
+        <div id="sDurSlider"></div>
+        <p class="hint hidden" id="sDurNote">Ползунок — до 5 часов. Для встречи длиннее меняйте окончание.</p>
       </div>
       <label class="field"><span class="field-label">Часовой пояс</span><select id="sTz"></select></label>
       <div class="sched-summary" id="sLocal"></div>
@@ -325,6 +335,7 @@
 <script src="js/config.js"></script>
 <script src="js/icons.js"></script>
 <script src="js/app.js"></script>
+<script src="js/pickers.js"></script>
 <script src="js/schedule.js"></script>
 <script src="js/effects.js"></script>
 <script src="js/games.js"></script>

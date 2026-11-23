@@ -26,7 +26,7 @@ const Sched = {
   clean(x) {
     if (!x || typeof x !== 'object') return null;
     const t = Math.floor(+x.t), e = Math.floor(+x.e);
-    if (!Number.isFinite(t) || !Number.isFinite(e) || t < 1.6e9 || t > 4.1e9 || e <= t || e - t > 12 * 3600) return null;
+    if (!Number.isFinite(t) || !Number.isFinite(e) || t < 1.6e9 || t > 4.1e9 || e <= t || e - t > 7 * 86400) return null;
     const n = x.n ? String(x.n).replace(/[\u0000-\u001f\u007f​-‏‪-‮]/g, '').trim().slice(0, 60) : '';
     return { t, e, n, z: this.tzOk(x.z) ? x.z : null };
   },
@@ -58,7 +58,7 @@ const Sched = {
   when(sc, tz) {
     tz = tz || sc.z || this.myTz;
     const a = sc.t * 1000, b = sc.e * 1000, sameDay = this.partsIn(tz, a).date === this.partsIn(tz, b).date;
-    return `${this.fmtDay(tz, a)}, ${this.fmtTime(tz, a)}–${sameDay ? '' : this.fmtDay(tz, b) + ', '}${this.fmtTime(tz, b)}`;
+    return sameDay ? `${this.fmtDay(tz, a)}, ${this.fmtTime(tz, a)}–${this.fmtTime(tz, b)}` : `${this.fmtDay(tz, a)}, ${this.fmtTime(tz, a)} — ${this.fmtDay(tz, b)}, ${this.fmtTime(tz, b)}`;
   },
   localLine(sc) {
     if (!sc.z || sc.z === this.myTz || this.offsetMs(sc.z, sc.t * 1000) === this.offsetMs(this.myTz, sc.t * 1000)) return '';
@@ -143,27 +143,121 @@ const Sched = {
     sel.value = current || this.myTz;
   },
   open() {
-    const tz = ls.get('schedTz', '') && this.tzOk(ls.get('schedTz', '')) ? ls.get('schedTz', '') : this.myTz;
+    const tz = this.myTz; // всегда пояс, в котором вы сейчас
     this.fillTz($('#sTz'), tz);
     const now = Date.now(), next = Math.ceil((now + 5 * 60000) / (30 * 60000)) * 30 * 60000;
     const p = this.partsIn(tz, next);
-    $('#sDate').value = p.date; $('#sTime').value = p.time; $('#sDate').min = this.partsIn(tz, now).date;
-    $('#sTitle').value = ''; $('#sPass').value = ''; $('#sErr').classList.add('hidden');
-    this.setDur(ls.get('schedDur', 60));
+    this.date = p.date; this.start = p.time;
+    $('#sTitle').value = ''; $('#sPass').value = ''; $('#sErr').classList.add('hidden'); $('#sEndHint').classList.add('hidden');
     $('#schedForm').classList.remove('hidden'); $('#schedDone').classList.add('hidden');
     $('#schedModal').classList.remove('hidden');
-    this.formTick();
+    if (!this.slider) {
+      const snaps = [5, 10, 30]; for (let m = 60; m <= 300; m += 30) snaps.push(m);
+      this.slider = new JellySlider($('#sDurSlider'), {
+        min: 5, max: 300, value: 60, aria: 'Длительность', snaps,
+        majors: [[5, '5м'], [30, '30м'], [60, '1ч'], [120, '2ч'], [180, '3ч'], [240, '4ч'], [300, '5ч']],
+        knots: [[0, 5], [.2, 30], [.38, 60], [1, 300]],
+        label: durText, short: durShort,
+        onChange: v => { if (this.dur <= 300) { this.dur = v; $('#sEndHint').classList.add('hidden'); this.renderPick(); this.formTick(); } },
+      });
+    }
+    Spring.add(this.slider);
+    this.setDur(clampN(+ls.get('schedDur', 60) || 60, 5, 300), false);
     setTimeout(() => $('#sTitle').focus(), 80);
   },
-  setDur(m) {
-    this.dur = DUR_LABEL[m] ? m : 60;
-    $$('#sDur button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.m === this.dur)));
-    this.formTick();
+  close() { Pop.close(true); if (this.slider) Spring.remove(this.slider); },
+  tz() { return $('#sTz').value || this.myTz; },
+  setDur(m, animate) {
+    this.dur = clampN(Math.round(m), 5, 7 * 1440);
+    const big = this.dur > 300;
+    $('#sDurSlider').classList.toggle('hidden', big);
+    $('#sDurNote').classList.toggle('hidden', !big);
+    if (!big) this.slider.set(this.dur, animate);
+    this.renderPick(); this.formTick();
+  },
+  today() { return this.partsIn(this.tz(), Date.now()).date; },
+  startTs() { return this.zonedToUtc(this.date, this.start, this.tz()); },
+  endParts() { return this.partsIn(this.tz(), this.startTs() + this.dur * 60000); },
+  dateLabel(iso) {
+    const td = this.today();
+    const d = new Date(iso + 'T12:00:00Z');
+    const txt = new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(d);
+    const tm = new Date(td + 'T12:00:00Z'); tm.setUTCDate(tm.getUTCDate() + 1);
+    const rel = iso === td ? 'Сегодня' : iso === tm.toISOString().slice(0, 10) ? 'Завтра' : '';
+    return rel ? `${rel}, ${txt.replace(/^[^,]+,\s*/, '')}` : txt[0].toUpperCase() + txt.slice(1);
+  },
+  renderPick() {
+    if (!this.date) return;
+    const e = this.endParts();
+    $('#sDateVal').textContent = this.dateLabel(this.date);
+    $('#sEndDateVal').textContent = this.dateLabel(e.date);
+    if (document.activeElement !== $('#sStartTime')) $('#sStartTime').value = this.start;
+    if (document.activeElement !== $('#sEndTime')) $('#sEndTime').value = e.time;
+    $('#sDurText').textContent = durText(this.dur);
+  },
+  // окончание задано вручную: длительность считается сама
+  setEnd(date, time) {
+    const diff = Math.round((this.zonedToUtc(date, time, this.tz()) - this.startTs()) / 60000);
+    const hint = $('#sEndHint');
+    if (diff < 5) { hint.textContent = 'Окончание должно быть хотя бы на 5 минут позже начала'; hint.classList.remove('hidden'); this.renderPick(); return; }
+    if (diff > 7 * 1440) { hint.textContent = 'Встреча может длиться не больше 7 дней'; hint.classList.remove('hidden'); this.renderPick(); return; }
+    hint.classList.add('hidden');
+    this.setDur(diff, true);
+  },
+  pickDate() {
+    const box = calendar(this.date, this.today(), v => { this.date = v; this.renderPick(); this.formTick(); setTimeout(() => Pop.close(), 160); });
+    Pop.open($('#sDateBtn'), box, 'pick-cal');
+  },
+  pickEndDate() {
+    const box = calendar(this.endParts().date, this.date, v => { this.setEnd(v, this.endParts().time); setTimeout(() => Pop.close(), 160); });
+    Pop.open($('#sEndDateBtn'), box, 'pick-cal');
+  },
+  // поле времени: на компьютере можно печатать (1630 → 16:30), на телефоне — только колёса
+  bindTime(inp, get, set, title) {
+    const field = inp.parentElement;
+    if (IS_TOUCH) { inp.readOnly = true; inp.setAttribute('inputmode', 'none'); }
+    const fmt = t => `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+    const parse = raw => {
+      const d = raw.replace(/\D/g, '');
+      if (!d) return null;
+      let hh, mm;
+      if (d.length <= 2) { hh = +d; mm = 0; } else if (d.length === 3) { hh = +d[0]; mm = +d.slice(1); } else { hh = +d.slice(0, 2); mm = +d.slice(2, 4); }
+      return hh < 24 && mm < 60 ? fmt(hh * 60 + mm) : null;
+    };
+    let box = null;
+    const openWheels = () => {
+      if (Pop.anchor === field) return;
+      box = timeWheels(get(), 1, v => { set(v); if (document.activeElement !== inp) inp.value = get(); }, title);
+      if (Pop.open(field, box, 'pick-time')) box._init(); else box = null;
+    };
+    const commit = () => { const v = parse(inp.value); if (v && v !== get()) set(v); inp.value = get(); };
+    let fresh = false;
+    inp.addEventListener('focus', () => { openWheels(); if (!IS_TOUCH) { fresh = true; inp.select(); } });
+    inp.addEventListener('mouseup', e => { if (fresh) { e.preventDefault(); fresh = false; } }); // клик не снимает выделение — можно сразу печатать
+    inp.addEventListener('click', openWheels);
+    field.querySelector('.pick-ico').onclick = () => { IS_TOUCH ? openWheels() : inp.focus(); };
+    inp.addEventListener('input', () => {
+      fresh = false;
+      const d = inp.value.replace(/\D/g, '').slice(0, 4);
+      inp.value = d.length > 2 ? d.slice(0, 2) + ':' + d.slice(2) : d;
+      if (d.length === 4) { const v = parse(d); if (v) { set(v); if (box && Pop.anchor === field) box._set(get()); } }
+    });
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); Pop.close(); }
+      else if (e.key === 'Tab') { commit(); Pop.close(true); }
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const [hh, mm] = get().split(':').map(Number);
+        const v = fmt((hh * 60 + mm + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 60 : 5) + 1440) % 1440);
+        set(v); inp.value = get(); if (box && Pop.anchor === field) box._set(get());
+      }
+    });
+    inp.addEventListener('blur', () => setTimeout(() => { if (!Pop.el || !Pop.el.contains(document.activeElement)) commit(); }, 0));
   },
   readForm() {
-    const tz = $('#sTz').value || this.myTz, d = $('#sDate').value, t = $('#sTime').value;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{2}:\d{2}/.test(t)) return null;
-    const start = this.zonedToUtc(d, t.slice(0, 5), tz);
+    const tz = this.tz();
+    if (!this.date || !this.start) return null;
+    const start = this.zonedToUtc(this.date, this.start, tz);
     return { tz, start, end: start + this.dur * 60000 };
   },
   formTick() {
@@ -174,7 +268,7 @@ const Sched = {
     const parts = [];
     if (f.end <= Date.now()) parts.push('Это время уже прошло');
     else parts.push(this.status(sc).text);
-    parts.push(`${this.fmtTime(f.tz, f.start)}–${this.fmtTime(f.tz, f.end)} · ${this.tzLabel(f.tz, f.start)}`);
+    parts.push(`${this.when(sc, f.tz)} · ${this.tzLabel(f.tz, f.start)} · ${durText(this.dur)}`);
     const loc = this.localLine(sc); if (loc) parts.push(loc);
     out.replaceChildren(...parts.map((x, i) => h('span', { class: i === 0 ? 'sl-main' : '', text: x })));
   },
@@ -193,7 +287,7 @@ const Sched = {
       let key = null, salt = null;
       const pw = $('#sPass').value;
       if (pw) { salt = toB64(crypto.getRandomValues(new Uint8Array(16))); key = await Crypt.deriveKey(pw, salt); meta.s = salt; meta.v = await passVerifier(key, code); }
-      ls.set('schedTz', f.tz); ls.set('schedDur', this.dur);
+      ls.set('schedDur', Math.min(this.dur, 300));
       const hash = metaHash(code, sc, meta);
       this.pending = { code, meta, key, salt, hash, link: location.origin + location.pathname + '#' + hash };
       this.showDone();
@@ -230,9 +324,19 @@ const Sched = {
   init() {
     $('#schedBtn').onclick = () => this.open();
     $('#schedForm').onsubmit = e => this.submit(e);
-    $$('#sDur button').forEach(b => b.onclick = () => this.setDur(+b.dataset.m));
-    ['#sDate', '#sTime', '#sTz'].forEach(s => $(s).addEventListener('input', () => this.formTick()));
-    $('#sTz').addEventListener('change', () => this.formTick());
+    $('#sDateBtn').onclick = () => this.pickDate();
+    $('#sEndDateBtn').onclick = () => this.pickEndDate();
+    this.bindTime($('#sStartTime'), () => this.start, v => { this.start = v; this.renderPick(); this.formTick(); }, 'Начало');
+    this.bindTime($('#sEndTime'), () => this.endParts().time, v => {
+      // время окончания раньше начала в тот же день — значит, на следующий день
+      let d = this.endParts().date;
+      if (this.zonedToUtc(d, v, this.tz()) - this.startTs() < 5 * 60000) {
+        const n = new Date(this.date + 'T12:00:00Z'); n.setUTCDate(n.getUTCDate() + 1); d = n.toISOString().slice(0, 10);
+      }
+      this.setEnd(d, v);
+    }, 'Окончание');
+    $('#sTz').addEventListener('change', () => { this.renderPick(); this.formTick(); });
+    new MutationObserver(() => { if ($('#schedModal').classList.contains('hidden')) this.close(); }).observe($('#schedModal'), { attributes: true, attributeFilter: ['class'] });
     $('#dEnter').onclick = () => this.copyAndEnter();
     $('#dCopy').onclick = () => this.copyOnly();
     $('#dBack').onclick = () => { $('#schedForm').classList.remove('hidden'); $('#schedDone').classList.add('hidden'); this.formTick(); };
