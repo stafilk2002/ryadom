@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' https://0.peerjs.com wss://0.peerjs.com; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Видеозвонки с друзьями без регистрации. Голос и видео идут напрямую между участниками.">
+<title>Рядом</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<!-- ============ ГЛАВНАЯ ============ -->
+<main class="screen" id="home">
+  <div class="home-card">
+    <div class="app-mark" aria-hidden="true">
+      <svg viewBox="0 0 48 48"><rect x="6" y="13" width="25" height="22" rx="6"/><path d="M31 21.5l9-5.5v16l-9-5.5"/></svg>
+    </div>
+    <h1 class="display">Рядом</h1>
+    <p class="lede">Видеозвонки с друзьями. Без регистрации, напрямую между вами.</p>
+
+    <div class="invite hidden" id="inviteBox">
+      <span class="invite-label">Вас пригласили в комнату</span>
+      <span class="invite-code" id="inviteCode"></span>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Ваше имя</span>
+      <input id="nameInput" type="text" maxlength="24" autocomplete="nickname" placeholder="Как вас зовут" spellcheck="false">
+    </label>
+
+    <div id="createBlock">
+      <div class="pass-row hidden" id="passRow">
+        <label class="field">
+          <span class="field-label">Пароль комнаты</span>
+          <input id="createPass" type="password" maxlength="64" autocomplete="new-password" placeholder="Необязательно">
+        </label>
+      </div>
+      <button class="btn btn-primary btn-lg" id="createBtn" type="button">Создать звонок</button>
+      <button class="link-btn" id="passToggle" type="button"><span data-icon="lock"></span><span>Добавить пароль</span></button>
+
+      <div class="divider"><span>или</span></div>
+
+      <div class="code-join">
+        <input id="codeInput" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="9" placeholder="Код комнаты" aria-label="Код комнаты">
+        <button class="btn btn-glass" id="codeBtn" type="button">Войти по коду</button>
+      </div>
+    </div>
+
+    <div id="joinBlock" class="hidden">
+      <button class="btn btn-primary btn-lg" id="joinInviteBtn" type="button">Присоединиться</button>
+      <button class="link-btn" id="ownRoomBtn" type="button"><span>Создать свою комнату</span></button>
+    </div>
+
+    <button class="link-btn subtle" data-open="about" type="button"><span data-icon="shield"></span><span>О безопасности</span></button>
+  </div>
+</main>
+
+<!-- ============ ПРЕДПРОСМОТР ============ -->
+<section class="screen hidden" id="preview" aria-label="Предпросмотр">
+  <button class="icon-btn glass back-btn" id="pvBack" type="button" aria-label="Назад"><span data-icon="back"></span></button>
+  <div class="pv-layout">
+    <div class="pv-stage">
+      <video id="pvVideo" autoplay playsinline muted></video>
+      <div class="pv-placeholder" id="pvPlaceholder">
+        <div class="ava-big" id="pvAva"></div>
+      </div>
+      <div class="pv-ask glass-strong" id="pvAsk">
+        <span class="pv-ask-icon" data-icon="cam"></span>
+        <h3>Камера и микрофон</h3>
+        <p>Чтобы друзья вас видели и слышали, браузер спросит разрешение. Видео и голос идут только напрямую к участникам звонка.</p>
+        <button class="btn btn-primary" id="pvAllow" type="button">Разрешить</button>
+        <button class="link-btn" id="pvSkip" type="button"><span>Продолжить без них — только слушать</span></button>
+      </div>
+      <div class="pv-bar glass">
+        <button class="ctl" id="pvMic" type="button" aria-label="Микрофон"><span data-icon="mic"></span></button>
+        <button class="ctl" id="pvCam" type="button" aria-label="Камера"><span data-icon="cam"></span></button>
+        <button class="ctl" id="pvMirror" type="button" aria-label="Зеркалить"><span data-icon="mirror"></span></button>
+        <div class="meter" aria-hidden="true"><i id="pvMeter"></i></div>
+      </div>
+    </div>
+    <div class="pv-side">
+      <h2 class="title" id="pvTitle">Готовы?</h2>
+      <p class="muted" id="pvSub"></p>
+      <label class="field"><span class="field-label">Микрофон</span><select id="pvMicSel"></select></label>
+      <label class="field"><span class="field-label">Камера</span><select id="pvCamSel"></select></label>
+      <label class="field" id="pvSpkWrap"><span class="field-label">Динамики</span><select id="pvSpkSel"></select></label>
+      <p class="hint hidden" id="pvDenied">Доступа к камере и микрофону нет. Вы войдёте в режиме «только слушать» — разрешение можно дать позже в настройках браузера.</p>
+      <button class="btn btn-primary btn-lg" id="pvJoin" type="button">Войти</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ЗВОНОК ============ -->
+<section class="screen hidden" id="call" aria-label="Звонок">
+  <div class="stage" id="stage"></div>
+
+  <div class="game-layer hidden" id="gameLayer"></div>
+
+  <header class="topbar" id="topbar">
+    <button class="pill glass" id="codePill" type="button" aria-label="Пригласить">
+      <span class="dot" id="connDot"></span>
+      <span class="pill-code" id="roomCode"></span>
+      <span data-icon="link"></span>
+    </button>
+    <span class="pill glass hidden" id="lockPill"><span data-icon="lock"></span><span>Вход закрыт</span></span>
+    <span class="pill pill-rec hidden" id="recPill"><i></i><span id="recText">Запись</span></span>
+    <button class="pill glass hidden" id="gamePill" type="button"><span data-icon="game"></span><span id="gamePillText">Игровая комната</span></button>
+    <span class="spacer"></span>
+    <span class="pill glass hidden" id="pttPill"><span>Зажмите <kbd>V</kbd>, чтобы говорить</span></span>
+    <button class="pill glass" id="peoplePill" type="button" aria-label="Участники"><span data-icon="people"></span><span id="peopleCount">1</span></button>
+  </header>
+
+  <div class="alone glass hidden" id="alone">
+    <h3>Вы пока одни</h3>
+    <p>Отправьте друзьям ссылку или код</p>
+    <div class="alone-code" id="aloneCode"></div>
+    <div class="row-gap">
+      <button class="btn btn-primary" id="copyLinkBtn" type="button"><span data-icon="link"></span><span>Скопировать ссылку</span></button>
+      <button class="btn btn-glass hidden" id="shareBtn" type="button">Поделиться</button>
+    </div>
+  </div>
+
+  <div class="reconnect glass hidden" id="reconnect"><span class="spinner"></span><span>Переподключение…</span></div>
+  <div class="unmute glass hidden" id="tapAudio" role="button" tabindex="0"><span data-icon="speaker"></span><span>Нажмите, чтобы включить звук</span></div>
+
+  <div class="react-bar glass hidden" id="reactBar" role="toolbar" aria-label="Реакции"></div>
+
+  <nav class="controls glass" id="controls" aria-label="Управление звонком">
+    <button class="ctl" id="micBtn" type="button" aria-label="Микрофон"><span data-icon="mic"></span></button>
+    <button class="ctl" id="camBtn" type="button" aria-label="Камера"><span data-icon="cam"></span></button>
+    <button class="ctl hidden" id="flipBtn" type="button" aria-label="Сменить камеру"><span data-icon="flip"></span></button>
+    <button class="ctl hidden" id="screenBtn" type="button" aria-label="Демонстрация экрана"><span data-icon="screen"></span></button>
+    <button class="ctl" id="reactBtn" type="button" aria-label="Реакции"><span data-icon="smile"></span></button>
+    <button class="ctl" id="gameBtn" type="button" aria-label="Игровая комната"><span data-icon="game"></span></button>
+    <button class="ctl" id="moreBtn" type="button" aria-label="Ещё"><span data-icon="more"></span></button>
+    <button class="ctl ctl-end" id="endBtn" type="button" aria-label="Завершить"><span data-icon="end"></span></button>
+  </nav>
+
+  <!-- меню «Ещё» -->
+  <div class="menu glass-strong hidden" id="moreMenu" role="menu">
+    <button class="menu-item" data-act="record" type="button"><span data-icon="record"></span><span class="mi-text">Записать звонок</span></button>
+    <button class="menu-item" data-act="shot" type="button"><span data-icon="shot"></span><span class="mi-text">Снимок всех участников</span></button>
+    <div class="menu-sep"></div>
+    <button class="menu-item" data-act="layout" type="button"><span data-icon="pip"></span><span class="mi-text">Окна рядом</span></button>
+    <button class="menu-item" data-act="mirror" type="button"><span data-icon="mirror"></span><span class="mi-text">Зеркалить себя</span><span class="switch" aria-hidden="true"></span></button>
+    <button class="menu-item" data-act="gestures" type="button"><span data-icon="hand"></span><span class="mi-text">Реакции жестами</span><span class="switch" aria-hidden="true"></span></button>
+    <div class="menu-sep"></div>
+    <button class="menu-item" data-act="people" type="button"><span data-icon="people"></span><span class="mi-text">Участники</span></button>
+    <button class="menu-item" data-act="chat" type="button"><span data-icon="chat"></span><span class="mi-text">Чат</span><span class="badge hidden" id="chatBadge"></span></button>
+    <button class="menu-item" data-act="settings" type="button"><span data-icon="settings"></span><span class="mi-text">Звук и видео</span></button>
+    <button class="menu-item" data-act="about" type="button"><span data-icon="shield"></span><span class="mi-text">О безопасности</span></button>
+  </div>
+
+  <!-- меню «Завершить» -->
+  <div class="menu glass-strong hidden" id="endMenu" role="menu">
+    <button class="menu-item danger" data-act="leave" type="button"><span data-icon="leave"></span><span class="mi-text">Выйти из звонка</span></button>
+    <button class="menu-item danger hidden" data-act="endall" type="button"><span data-icon="end"></span><span class="mi-text">Завершить для всех</span></button>
+  </div>
+
+  <!-- боковая панель -->
+  <aside class="side glass-strong" id="side" aria-label="Участники и чат">
+    <div class="side-head">
+      <div class="seg" role="tablist">
+        <button class="seg-btn active" data-tab="people" type="button" role="tab">Участники</button>
+        <button class="seg-btn" data-tab="chat" type="button" role="tab">Чат</button>
+      </div>
+      <button class="icon-btn" id="sideClose" type="button" aria-label="Закрыть"><span data-icon="close"></span></button>
+    </div>
+    <div class="side-body" data-pane="people">
+      <div class="owner-tools hidden" id="ownerTools">
+        <button class="row-btn" id="lockBtn" type="button"><span data-icon="lock"></span><span id="lockBtnText">Закрыть вход в комнату</span></button>
+      </div>
+      <ul class="people" id="peopleList"></ul>
+      <p class="hint">Каждый вход в комнату виден всем участникам.</p>
+    </div>
+    <div class="side-body hidden" data-pane="chat">
+      <ul class="chat" id="chatList"></ul>
+      <form class="chat-form" id="chatForm" autocomplete="off">
+        <input id="chatInput" type="text" maxlength="500" placeholder="Сообщение" aria-label="Сообщение">
+        <button class="icon-btn filled" type="submit" aria-label="Отправить"><span data-icon="send"></span></button>
+      </form>
+    </div>
+  </aside>
+</section>
+
+<!-- ============ ЗВОНОК ЗАВЕРШЁН ============ -->
+<section class="screen hidden" id="ended">
+  <div class="home-card">
+    <h2 class="title" id="endedTitle">Звонок завершён</h2>
+    <p class="lede" id="endedText"></p>
+    <button class="btn btn-primary btn-lg" id="rejoinBtn" type="button">Вернуться в звонок</button>
+    <button class="link-btn" id="homeBtn" type="button"><span>На главную</span></button>
+  </div>
+</section>
+
+<!-- ============ ОКНА ============ -->
+<div class="modal hidden" id="pwModal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+  <form class="sheet glass-strong" id="pwForm" autocomplete="off">
+    <span class="sheet-icon" data-icon="lock"></span>
+    <h3 id="pwTitle">Комната с паролем</h3>
+    <p class="muted">Пароль не передаётся по сети — браузер только доказывает, что знает его.</p>
+    <input id="pwInput" type="password" maxlength="64" autocomplete="current-password" placeholder="Пароль">
+    <p class="err hidden" id="pwErr">Неверный пароль</p>
+    <div class="row-gap">
+      <button class="btn btn-glass" type="button" id="pwCancel">Отмена</button>
+      <button class="btn btn-primary" type="submit">Войти</button>
+    </div>
+  </form>
+</div>
+
+<div class="modal hidden" id="settings" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+  <div class="sheet sheet-wide glass-strong">
+    <div class="sheet-head"><h3 id="setTitle">Звук и видео</h3><button class="icon-btn" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div>
+    <div class="set-grid">
+      <label class="field"><span class="field-label">Микрофон</span><select id="setMic"></select></label>
+      <label class="field"><span class="field-label">Камера</span><select id="setCam"></select></label>
+      <label class="field" id="setSpkWrap"><span class="field-label">Динамики</span><select id="setSpk"></select></label>
+    </div>
+    <div class="set-block">
+      <div class="set-row"><span class="set-label">Порог микрофона</span><span class="set-val" id="gateVal"></span></div>
+      <p class="hint">Голос проходит, только когда он громче белой отметки. Поднимите её, если друзья слышат шум.</p>
+      <div class="meter meter-gate"><i id="gateMeter"></i><b id="gateMark"></b></div>
+      <input type="range" id="gateRange" min="-80" max="-20" step="1" aria-label="Порог микрофона">
+    </div>
+    <div class="set-block">
+      <div class="set-row"><span class="set-label">Режим рации</span><button class="switch-btn" id="pttSwitch" type="button" role="switch" aria-checked="false"><span class="switch"></span></button></div>
+      <p class="hint">Говорить, только пока зажата клавиша <kbd>V</kbd> (на телефоне — кнопка микрофона).</p>
+    </div>
+    <div class="set-block">
+      <div class="set-row"><span class="set-label">Громкость голосов</span><span class="set-val" id="voiceVal"></span></div>
+      <input type="range" id="voiceRange" min="0" max="1" step="0.05" aria-label="Общая громкость голосов">
+      <p class="hint hidden" id="iosVolHint">На iPhone и iPad громкость меняется кнопками устройства.</p>
+    </div>
+    <div class="set-block">
+      <div class="set-row"><span class="set-label">Зеркалить себя</span><button class="switch-btn" id="mirrorSwitch" type="button" role="switch" aria-checked="false"><span class="switch"></span></button></div>
+      <div class="set-row"><span class="set-label">Реакции жестами</span><button class="switch-btn" id="gestSwitch" type="button" role="switch" aria-checked="false"><span class="switch"></span></button></div>
+      <p class="hint">Покажите в камеру: большой палец, «викторию», «козу» — одной или двумя руками. Распознавание идёт прямо в браузере.</p>
+    </div>
+    <p class="hint" id="aecInfo"></p>
+  </div>
+</div>
+
+<div class="modal hidden" id="about" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+  <div class="sheet sheet-wide glass-strong about">
+    <div class="sheet-head"><h3 id="aboutTitle">О безопасности</h3><button class="icon-btn" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div>
+    <ul class="facts">
+      <li><b>Голос и видео идут напрямую</b> между участниками по WebRTC и всегда зашифрованы (DTLS-SRTP). Сервер их не видит и не пересылает.</li>
+      <li><b>Сигнальный сервер PeerJS</b> нужен только чтобы участники нашли друг друга. Он видит случайные технические id и IP-адреса, но не код комнаты в открытом виде, не имена и не сообщения.</li>
+      <li><b>Участники видят IP-адреса друг друга.</b> Так устроено прямое соединение. Звоните тем, кому доверяете.</li>
+      <li><b>Без TURN-сервера</b> часть сетей (некоторые мобильные операторы, офисные сети) не даст соединиться напрямую — звонок с таким участником может не установиться.</li>
+      <li><b>Пароль комнаты</b> не уходит в сеть: новичок отвечает на случайный вызов (PBKDF2 + HMAC в WebCrypto), а комната тоже доказывает ему, что знает пароль. Без пароля в комнату не пускают и звонки не принимают.</li>
+      <li><b>Звонки принимаются только от участников комнаты.</b> Звонок с незнакомого id сразу сбрасывается.</li>
+      <li><b>Каждый вход виден всем</b> — всплывающее уведомление и строка в списке. Запись и снимки тоже видны всем.</li>
+      <li><b>Ничего не хранится на сервере.</b> В браузере сохраняются только ваши настройки: имя, устройства, порог микрофона. Ни аналитики, ни рекламы, ни счётчиков.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="emoji-layer" id="emojiLayer" aria-hidden="true"></div>
+<canvas class="fx-layer" id="fxLayer" aria-hidden="true"></canvas>
+<video id="gestVideo" class="offscreen" autoplay playsinline muted></video>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" integrity="sha384-x0YgkOr/3UOZP2CRDxGW9e0Q+2Qjyr3uJrm4xU32Y7ZCNAo7Cc7bjhrZMi/dwczu" crossorigin="anonymous"></script>
+<script src="js/config.js"></script>
+<script src="js/icons.js"></script>
+<script src="js/app.js"></script>
+<script src="js/effects.js"></script>
+<script src="js/games.js"></script>
+</body>
+</html>
