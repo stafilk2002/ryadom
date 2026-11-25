@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' https://0.peerjs.com wss://0.peerjs.com; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream: https:; connect-src 'self' https://0.peerjs.com wss://0.peerjs.com https:; worker-src 'none'; frame-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#050506" media="(prefers-color-scheme: dark)">
@@ -125,6 +125,8 @@
   <div class="stage" id="stage"></div>
 
   <div class="game-layer hidden" id="gameLayer"></div>
+  <div class="cine-layer hidden" id="cineLayer"></div>
+  <audio id="cineLoop" class="hidden" autoplay></audio>
 
   <header class="topbar" id="topbar">
     <button class="pill glass" id="codePill" type="button" aria-label="Скопировать ссылку-приглашение">
@@ -136,6 +138,7 @@
     <span class="pill glass hidden" id="lockPill"><span data-icon="lock"></span><span>Вход закрыт</span></span>
     <span class="pill pill-rec hidden" id="recPill"><i></i><span id="recText">Запись</span></span>
     <button class="pill glass hidden" id="gamePill" type="button"><span data-icon="game"></span><span id="gamePillText">Сулифа</span></button>
+    <button class="pill glass hidden" id="cinePill" type="button"><span data-icon="film"></span><span id="cinePillText">Кино</span></button>
     <span class="spacer"></span>
     <span class="pill glass hidden" id="pttPill"><span>Зажмите <kbd>V</kbd>, чтобы говорить</span></span>
     <button class="pill glass" id="peoplePill" type="button" aria-label="Участники"><span data-icon="people"></span><span id="peopleCount">1</span></button>
@@ -162,12 +165,13 @@
     <button class="ctl ctl-rec" id="recBtn" type="button" aria-label="Записать звонок" title="Записать звонок"><i></i></button>
     <span class="ctl-sep" aria-hidden="true"></span>
     <button class="ctl" id="reactBtn" type="button" aria-label="Реакции" title="Реакции"><span data-icon="smile"></span></button>
-    <button class="ctl desk-only" id="gameBtn" type="button" aria-label="Сулифа" title="Сулифа"><span data-icon="game"></span></button>
+    <button class="ctl desk-only" id="gameBtn" type="button" aria-label="Развлечения" title="Развлечения"><span data-icon="game"></span></button>
     <button class="ctl" id="moreBtn" type="button" aria-label="Ещё"><span data-icon="more"></span></button>
     <button class="ctl ctl-end" id="endBtn" type="button" aria-label="Завершить"><span data-icon="end"></span></button>
   </nav>
 
   <div class="menu glass-strong hidden" id="moreMenu" role="menu">
+    <button class="menu-item mob-only" data-act="cine" type="button"><span data-icon="film"></span><span class="mi-text">Кино вместе</span></button>
     <button class="menu-item mob-only" data-act="game" type="button"><span data-icon="game"></span><span class="mi-text">Сулифа</span></button>
     <button class="menu-item" data-act="layout" type="button"><span data-icon="pip"></span><span class="mi-text">Окна рядом</span></button>
     <button class="menu-item" data-act="mirror" type="button"><span data-icon="mirror"></span><span class="mi-text">Зеркалить себя</span><span class="switch" aria-hidden="true"></span></button>
@@ -176,6 +180,11 @@
     <button class="menu-item" data-act="chat" type="button"><span data-icon="chat"></span><span class="mi-text">Чат</span><span class="badge hidden" id="chatBadge"></span></button>
     <button class="menu-item" data-act="settings" type="button"><span data-icon="settings"></span><span class="mi-text">Звук и видео</span></button>
     <button class="menu-item" data-act="about" type="button"><span data-icon="shield"></span><span class="mi-text">О безопасности</span></button>
+  </div>
+
+  <div class="menu glass-strong hidden" id="funMenu" role="menu">
+    <button class="menu-item" data-act="cine" type="button"><span data-icon="film"></span><span class="mi-text">Кино вместе</span></button>
+    <button class="menu-item" data-act="game" type="button"><span data-icon="game"></span><span class="mi-text">Сулифа</span></button>
   </div>
 
   <div class="menu glass-strong hidden" id="endMenu" role="menu">
@@ -311,6 +320,30 @@
   </div>
 </div>
 
+<div class="modal hidden" id="cineSrc" role="dialog" aria-modal="true" aria-labelledby="cineSrcTitle">
+  <div class="sheet sheet-wide glass-strong cine-src">
+    <div class="sheet-head"><h3 id="cineSrcTitle">Фильм для всех</h3><button class="icon-btn" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div>
+    <form id="cineSrcForm" class="cine-form" autocomplete="off">
+      <label class="field"><span class="field-label">Ссылка на видео <small>mp4, webm или m3u8</small></span><input id="cineUrl" type="url" inputmode="url" placeholder="https://…/movie.m3u8" spellcheck="false"></label>
+      <label class="field"><span class="field-label">Название <small>необязательно</small></span><input id="cineName" type="text" maxlength="80" placeholder="Как назовём?"></label>
+      <p class="hint err hidden" id="cineSrcErr"></p>
+      <button class="btn btn-primary btn-lg" type="submit"><span data-icon="play"></span><span>Включить у всех</span></button>
+      <div class="or"><span>или</span></div>
+      <button class="btn btn-glass" id="cineFileBtn" type="button"><span data-icon="file"></span><span>Файл с компьютера</span></button>
+      <p class="hint">Файл никуда не загружается. У каждого он должен быть свой — время у всех общее.</p>
+      <div class="cine-ext" id="cineExt">
+        <span data-icon="puzzle"></span>
+        <div><b>Расширение «Сеанс»</b> <span class="ok hidden" id="cineExtOk">установлено</span>
+          <p class="hint" id="cineExtText">Достаёт ссылку на фильм с сайта, где он идёт, и пропускает видео, которое сайт отдаёт только «своим». Нажмите ▶ на сайте с фильмом, потом значок расширения.</p>
+          <a class="link-btn" id="cineExtLink" href="https://stafilk2002.github.io/seans/" target="_blank" rel="noopener noreferrer">Как установить</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<input type="file" id="cineFileIn" accept="video/*,.mkv,.mp4,.webm,.mov,.m4v" hidden>
+<input type="file" id="cineSubIn" accept=".srt,.vtt,.webvtt,.ass,.ssa,text/vtt" multiple hidden>
+
 <div class="modal hidden" id="about" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
   <div class="sheet sheet-wide glass-strong about">
     <div class="sheet-head"><h3 id="aboutTitle">О безопасности</h3><button class="icon-btn" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div>
@@ -322,6 +355,7 @@
       <li><b>Пароль комнаты</b> не уходит в сеть: новичок отвечает на случайный вызов (PBKDF2 + HMAC в WebCrypto), а комната тоже доказывает ему, что знает пароль. Без пароля в комнату не пускают и звонки не принимают.</li>
       <li><b>Звонки принимаются только от участников комнаты.</b> Звонок с незнакомого id сразу сбрасывается.</li>
       <li><b>Каждый вход виден всем</b> — всплывающее уведомление и строка в списке. Запись и снимки тоже видны всем.</li>
+      <li><b>Кино вместе.</b> Фильм каждый загружает сам по ссылке или из своего файла — видео не пересылается между участниками, по сети идут только «пауза», «плей» и время. Чужие ссылки открываются только как видео, никакого кода с них не запускается.</li>
       <li><b>Ничего не хранится на сервере.</b> В браузере сохраняются только ваши настройки: имя, устройства, порог микрофона. Ни аналитики, ни рекламы, ни счётчиков.</li>
     </ul>
   </div>
@@ -339,5 +373,7 @@
 <script src="js/schedule.js"></script>
 <script src="js/effects.js"></script>
 <script src="js/games.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js" integrity="sha384-V5ruNBgmYcC3SJRUQeNykAAAgde5gOFq/Hu0CZj7bygDP0yRIhkvX8+w0u/7mRvr" crossorigin="anonymous"></script>
+<script src="js/cinema.js"></script>
 </body>
 </html>

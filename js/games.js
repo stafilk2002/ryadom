@@ -153,6 +153,7 @@ const Games = (() => {
     if (on) $('#gamePillText').textContent = 'Сулифа · ' + s.players.length;
     if (!on || !visible) { layer.classList.add('hidden'); if (L.game) { L.game = false; layout(); } clearInterval(ticker); ticker = 0; return; }
     layer.classList.remove('hidden');
+    if (typeof Cinema !== 'undefined') Cinema.hide();
     if (!L.game) { L.game = true; layout(); }
     const key = [s.phase, s.data.endsAt || '', isPlayer(), s.leader === me.id, s.players.length >= 2].join('|');
     if (key !== renderedKey || !layer.firstChild) { renderedKey = key; build(layer); }
@@ -223,5 +224,5 @@ const Games = (() => {
     }
   }
 
-  return { onMsg, onMembers, toggleRoom, show() { if (s && s.open) { visible = true; render(); } }, reset() { closeLocal(); } };
+  return { onMsg, onMembers, toggleRoom, hide() { if (visible) { visible = false; render(); } }, show() { if (s && s.open) { visible = true; render(); } }, reset() { closeLocal(); } };
 })();

@@ -131,6 +131,7 @@ class Hub {
       banned: new Set(room.banned || []), known: new Set(room.known || []), rec: {}, ended: false,
       sched: room.sched || null,
     };
+    this.cine = Cine.hubInit(room.cine);
     this.armEnd();
   }
   start() {
@@ -162,7 +163,7 @@ class Hub {
   list() { return [...this.members.values()].map(({ conn, ...m }) => m).sort((a, b) => a.joined - b.joined); }
   pub() {
     const r = this.room;
-    return { sched: r.sched, hasPass: r.hasPass, salt: r.salt, locked: r.locked, owner: r.owner, banned: [...r.banned].slice(-64), known: [...r.known].slice(-64), rec: Object.keys(r.rec).filter(id => this.members.has(id)) };
+    return { cine: this.cine, sched: r.sched, hasPass: r.hasPass, salt: r.salt, locked: r.locked, owner: r.owner, banned: [...r.banned].slice(-64), known: [...r.known].slice(-64), rec: Object.keys(r.rec).filter(id => this.members.has(id)) };
   }
   broadcast(m) { for (const x of this.members.values()) { try { x.conn.open && x.conn.send(m); } catch {} } }
   sendMembers() { this.broadcast({ t: 'members', list: this.list() }); }
@@ -238,6 +239,8 @@ class Hub {
         if (m.to) { const t = this.members.get(m.to); if (t) { try { t.conn.send(out); } catch {} } } else this.broadcast(out);
         break;
       }
+      case 'cine': if (Cine.hubAct(this.cine, m.a, id)) this.broadcast({ t: 'cine', s: this.cine, a: String(m.a.type), from: id, name: mem.name }); break;
+      case 'cpos': if (this.cine.open) this.broadcast({ t: 'cpos', id, p: Number.isFinite(+m.p) ? +m.p : null, s: String(m.s || '').slice(0, 8), at: Date.now() }); break;
       case 'kick': {
         if (id !== r.owner || m.id === id) return;
         const t = this.members.get(m.id);
@@ -423,6 +426,7 @@ function onMessage(m, conn) {
       S.room = sanitizeRoom(m.room); if (S.room.salt) S.salt = S.room.salt;
       setMembers(m.members); onRoom(); startPings();
       if (!S.inCall) enterCall();
+      Cinema.onState(S.room.cine, { welcome: true });
       break;
     case 'pong': {
       const rtt = performance.now() - m.c; S.lastPong = Date.now();
@@ -430,11 +434,13 @@ function onMessage(m, conn) {
       break;
     }
     case 'members': setMembers(m.list); break;
-    case 'room': S.room = sanitizeRoom(m.room); onRoom(); break;
+    case 'room': S.room = sanitizeRoom(m.room); onRoom(); Cinema.onState(S.room.cine, { room: true }); break;
     case 'sys': onSys(m); break;
     case 'chat': addChat(m); break;
     case 'react': if (m.from !== me.id && REACTIONS.includes(m.e)) FX.emoji(m.e, cleanName(m.name)); break;
     case 'g': Games.onMsg(String(m.from), m.d); break;
+    case 'cine': Cinema.onState(Cine.clean(m.s), m); break;
+    case 'cpos': Cinema.onPos(m); break;
     case 'kicked':
       if (m.id === me.id) { leave('kicked'); return; }
       closeCallWith(m.id); toast(`${cleanName(m.name)} удалён(а) из звонка`, { icon: 'userX' });
@@ -445,7 +451,7 @@ function onMessage(m, conn) {
 function sanitizeRoom(r) {
   r = r && typeof r === 'object' ? r : {};
   const arr = a => Array.isArray(a) ? a.filter(x => typeof x === 'string').slice(0, 64) : [];
-  return { sched: Sched.clean(r.sched), hasPass: !!r.hasPass, salt: typeof r.salt === 'string' ? r.salt : null, locked: !!r.locked, owner: typeof r.owner === 'string' ? r.owner : null, banned: arr(r.banned), known: arr(r.known), rec: arr(r.rec) };
+  return { cine: Cine.clean(r.cine), sched: Sched.clean(r.sched), hasPass: !!r.hasPass, salt: typeof r.salt === 'string' ? r.salt : null, locked: !!r.locked, owner: typeof r.owner === 'string' ? r.owner : null, banned: arr(r.banned), known: arr(r.known), rec: arr(r.rec) };
 }
 function setMembers(list) {
   if (!Array.isArray(list)) return;
@@ -590,13 +596,15 @@ function gateLoop() {
     const st = Tiles.get(me.id); if (st) st.el.classList.toggle('speaking', meSpeaking);
     $('#micBtn').classList.toggle('talking', M.ptt && M.pttDown && micLive());
     markSpeaking(me.id, meSpeaking);
+    let talking = false;
     for (const [id, r] of M.remotes) {
       if (!r.an) continue;
       const on = rms(r.an, buf) > -52; if (on) r.last = now;
-      const sp = now - (r.last || 0) < 400;
+      const sp = now - (r.last || 0) < 400; if (sp) talking = true;
       const t = Tiles.get(id); if (t) t.el.classList.toggle('speaking', sp);
       markSpeaking(id, sp);
     }
+    M.talking = talking;
   }, 50);
 }
 function markSpeaking(id, on) { const li = $(`#peopleList [data-id="${CSS.escape(id)}"]`); if (li) li.classList.toggle('speaking', on); }
@@ -774,7 +782,7 @@ function applyVol(id) {
    ===================================================================== */
 const L = {
   mode: ls.get('layout', 'pip'), pinned: null, autoPin: false, swap: false,
-  corner: ls.get('pipCorner', 'br'), pipW: ls.get('pipW', IS_TOUCH ? 112 : 260), game: false,
+  corner: ls.get('pipCorner', 'br'), pipW: ls.get('pipW', IS_TOUCH ? 112 : 260), game: false, cine: false,
 };
 const Tiles = {
   map: new Map(), screenSeen: {},
@@ -914,15 +922,18 @@ function layout() {
   const top = 60 + sf.t, bottom = (IS_TOUCH ? 92 : 100) + sf.b, side = 12;
   const gap = n > 4 ? 8 : 10;
   const area = { x: side + sf.l, y: top, w: W - 2 * side - sf.l - sf.r, h: H - top - bottom };
-  $('#alone').classList.toggle('hidden', n > 1 || L.game || S.aloneClosed);
+  $('#alone').classList.toggle('hidden', n > 1 || L.game || L.cine || S.aloneClosed);
   // layout-кнопка в меню
   const lb = $('[data-act=layout]');
   if (lb) { setIcon(lb, L.mode === 'pip' ? 'side' : 'pip'); lb.querySelector('.mi-text').textContent = L.mode === 'pip' ? 'Окна рядом, одного размера' : 'Собеседник крупно, я в углу'; lb.classList.toggle('hidden', n !== 2); }
-  if (L.game) {
-    const hs = Math.max(64, Math.min(H * .14, 112));
+  if (L.game || L.cine) {
+    const hs = L.cine ? Math.max(56, Math.min(H * .12, 96)) : Math.max(64, Math.min(H * .14, 112));
     const rs = stripRects(n, area.x, top, area.w, hs, 8);
     tiles.forEach((t, i) => place(t, rs[i], 'strip'));
-    $('#gameLayer').style.setProperty('--strip-h', (top - sf.t + hs + 10) + 'px');
+    const sh = Math.max(...rs.map(r => r.y + r.h), top + hs) - sf.t + 10;
+    $('#gameLayer').style.setProperty('--strip-h', sh + 'px');
+    $('#cineLayer').style.setProperty('--strip-h', sh + 'px');
+    document.documentElement.style.setProperty('--strip-h', sh + 'px');
     return;
   }
   if (n === 1) { place(tiles[0], { x: 0, y: 0, w: W, h: H }, 'bleed'); return; }
@@ -999,7 +1010,7 @@ function initFloatDrag(t) {
 }
 
 function closeMenus(except) {
-  ['#moreMenu', '#endMenu', '#reactBar'].forEach(s => { if (s !== except) $(s).classList.add('hidden'); });
+  ['#moreMenu', '#endMenu', '#funMenu', '#reactBar'].forEach(s => { if (s !== except) $(s).classList.add('hidden'); });
   $$('.tile-pop').forEach(p => p.remove());
   if (except !== '#reactBar') $('#reactBtn').classList.remove('active');
 }
@@ -1401,10 +1412,11 @@ function leave(reason, by) {
   Rec.stop(true);
   stopScreen();
   Games.reset();
+  Cinema.reset();
   cleanupConnection(reason === 'ended');
   for (const t of Tiles.map.values()) t.el.remove();
   Tiles.map.clear(); Tiles.screenSeen = {};
-  S.members = []; L.pinned = null; L.game = false;
+  S.members = []; L.pinned = null; L.game = false; L.cine = false;
   $('#chatList').replaceChildren(); unread = 0; updateBadge();
   const wasIn = S.inCall; S.inCall = false;
   if (M.camTrack) { M.camTrack.stop(); M.camTrack = null; M.camOn = false; }
@@ -1492,7 +1504,6 @@ function bind() {
   };
   const bar = $('#reactBar');
   for (const e of REACTIONS) bar.append(h('button', { type: 'button', 'aria-label': 'Реакция ' + e, text: e, onclick: ev => { ev.stopPropagation(); FX.emoji(e, me.name); send({ t: 'react', e }); } }));
-  $('#gameBtn').onclick = () => Games.toggleRoom();
   $('#gamePill').onclick = () => Games.show();
   const popMenu = (btnSel, menuSel) => {
     const menu = $(menuSel), btn = $(btnSel), open = menu.classList.contains('hidden');
@@ -1504,12 +1515,18 @@ function bind() {
     menu.style.top = Math.max(8, r.top - mh - 12) + 'px';
   };
   $('#moreBtn').onclick = e => { e.stopPropagation(); popMenu('#moreBtn', '#moreMenu'); };
+  $('#gameBtn').onclick = e => { e.stopPropagation(); popMenu('#gameBtn', '#funMenu'); };
+  $('#funMenu').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b) return; e.stopPropagation(); closeMenus();
+    if (b.dataset.act === 'game') Games.toggleRoom(); else if (b.dataset.act === 'cine') Cinema.toggle();
+  });
   $('#endBtn').onclick = e => { e.stopPropagation(); popMenu('#endBtn', '#endMenu'); };
   $('#moreMenu').addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b) return; e.stopPropagation();
     const a = b.dataset.act;
     if (a !== 'mirror') closeMenus();
     if (a === 'game') Games.toggleRoom();
+    else if (a === 'cine') Cinema.toggle();
     else if (a === 'layout') { L.mode = L.mode === 'pip' ? 'side' : 'pip'; ls.set('layout', L.mode); L.swap = false; layout(); }
     else if (a === 'mirror') setMirror(!M.mirror);
     else if (a === 'people') openSide('people');
@@ -1522,7 +1539,7 @@ function bind() {
     if (b.dataset.act === 'leave') leave('self');
     else if (b.dataset.act === 'endall' && amOwner()) { if (confirm('Завершить звонок для всех участников?')) send({ t: 'end' }); }
   });
-  document.addEventListener('click', e => { if (!e.target.closest('.menu, .react-bar, .tile-pop, #moreBtn, #endBtn, #reactBtn')) closeMenus(); });
+  document.addEventListener('click', e => { if (!e.target.closest('.menu, .react-bar, .tile-pop, #moreBtn, #endBtn, #reactBtn, #gameBtn')) closeMenus(); });
 
   // верх
   $('#codePill').onclick = () => copyText(inviteLink(), 'Ссылка-приглашение скопирована');

@@ -43,6 +43,18 @@ window.ICONS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   trophy: '<path d="M8 4.5h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13.5V17M8.5 20h7M9.5 17h5v3h-5z"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  film: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 4.5v15M17 4.5v15M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  file: '<path d="M13.5 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3.5v5h5"/>',
+  puzzle: '<path d="M9.5 4.5a2 2 0 0 1 4 0v1.5H17a1.5 1.5 0 0 1 1.5 1.5v3.5H20a2 2 0 0 1 0 4h-1.5V18a1.5 1.5 0 0 1-1.5 1.5h-3.5V18a2 2 0 0 0-4 0v1.5H6A1.5 1.5 0 0 1 4.5 18v-3.5H6a2 2 0 0 0 0-4H4.5V7.5A1.5 1.5 0 0 1 6 6h3.5z"/>',
+  pause: '<path d="M8.5 5.5v13M15.5 5.5v13"/>',
+  back10: '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4v3.2h3.2"/><path d="M10 10v5M13 10h2v5h-2z"/>',
+  fwd10: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v3.2h-3.2"/><path d="M9 10v5M12 10h2v5h-2z"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
+  sliders: '<path d="M5 7h9M18 7h1M5 17h1M10 17h9"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minimize: '<path d="M6 12h12"/>',
   dots: '<circle class="dotf" cx="6" cy="12" r="1.3"/><circle class="dotf" cx="12" cy="12" r="1.3"/><circle class="dotf" cx="18" cy="12" r="1.3"/>',
 };
 window.svgIcon = function (name, cls) {
